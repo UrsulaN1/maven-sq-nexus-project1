@@ -144,9 +144,11 @@ sudo -u nexus /opt/nexus/bin/nexus start
 
 ## 🔐 Post-Installation & Access
 
-Service,URL,Default Username,Default Password
-SonarQube,http://<Public_IP>:9000,admin,admin (Reset required)
-Nexus,http://<Public_IP>:8081,admin,See command below
+| Service | URL | Default Username | Default Password |
+| :--- | :--- | :--- | :--- |
+| **SonarQube** | `http://<Public_IP>:9000` | `admin` | `admin` (Reset required) |
+| **Nexus** | `http://<Public_IP>:8081` | `admin` | *See instructions below* |
+
 Sources
 <https://www.howtoforge.com/how-to-install-nexus-repository-manager-on-ubuntu-22-04/>
 
@@ -159,13 +161,30 @@ cat /opt/sonatype-work/nexus3/admin.password
 ## Security Group Configuration
 
 **Inbound Rules Matrix**
-Tool,Port,Source,Purpose
-SonarQube,9000,Maven SG ID,Analysis Upload
-SonarQube,9000,My IP,Web Dashboard Access
-Nexus,8081,Maven SG ID,Artifact Deployment
-Nexus,8081,My IP,Web Dashboard Access
-Maven,22,My IP / Bastion,SSH Admin Access
-Common,22,My IP,SSH Access for all nodes
+The following table defines the required inbound traffic rules for SonarQube, Nexus, and Build nodes.
+
+| Tool | Port | Source | Purpose |
+| :--- | :--- | :--- | :--- |
+| **SonarQube** | 9000 | Maven SG ID | Analysis Upload |
+| **SonarQube** | 9000 | My IP | Web Dashboard Access |
+| **Nexus** | 8081 | Maven SG ID | Artifact Deployment |
+| **Nexus** | 8081 | My IP | Web Dashboard Access |
+| **Maven** | 22 | My IP / Bastion | SSH Admin Access |
+| **Common** | 22 | My IP | SSH Access for all nodes |
+
+### Configuration Details
+
+**SonarQube**
+-**Port 9000**: Used for both the web interface and the API endpoint where Maven build agents upload analysis reports.
+-**Access Control**: Ensure the Security Group (SG) associated with the Maven build server is whitelisted.
+
+**Nexus Repository Manager**
+-**Port 8081**: The default port for the Nexus web console and the repository manager.
+-**Usage**: Facilitates artifact storage and retrieval during the CI/CD pipeline.
+
+**SSH Access**
+-**Port 22**: Standard SSH port.
+-**Security Best Practice**: Direct access is limited to "My IP," while administrative access to the Maven node is routed through a Bastion host or specific IP range for enhanced security.
 
 **Outbound Rules**
 **All Servers**: Allow All Traffic (to download dependencies).
