@@ -285,11 +285,9 @@ nano ~/.m2/settings.xml
 XML
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
-                      https://maven.apache.org/xsd/settings-1.0.0.xsd">
+  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
   <servers>
     <server>
-      <!-- This ID must match the <id> in your pom.xml distributionManagement -->
       <id>nexus-snapshots</id>
       <username>admin</username>
       <password>your_nexus_password</password>
