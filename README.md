@@ -1,70 +1,95 @@
 # Maven-SonarQube-Nexus CI/CD Infrastructure
 
-This repository provides automation scripts and configuration guidelines for setting up a robust CI/CD environment. It includes User Data scripts for provisioning Maven Build Servers, SonarQube Code Quality Analysis, and Nexus Repository Manager on both Ubuntu and Amazon Linux 2023.
+This repository provides automated provisioning scripts and configuration guidelines for setting up a robust, manual-trigger CI/CD environment. This setup is designed for engineers looking to master artifact management and code quality gates.
 
 ---
 
-## 🚀 Quick Start
+## 🏗️ Architecture Overview
 
-To clone the project repository:
+* **Maven Build Server**: Compiles code, runs tests, and packages artifacts.
+* **SonarQube**: Performs static code analysis and quality gate checks.
+* **Nexus Repository Manager**: Hosts private Maven repositories for snapshots and releases.
 
-```bash
-git clone -b maven-sonarqube-nexus [https://github.com/awanmbandi/realworld-cicd-pipeline-project.git](https://github.com/awanmbandi/realworld-cicd-pipeline-project.git)
-```
+---
 
 ## 🛠️ Infrastructure Provisioning (User Data Scripts)
 
 ### 1. Maven Build Server
 
-Choose the script based on your EC2 instance OS.
+Run these scripts via EC2 User Data or manually as root.
+
+#### **Option A: Ubuntu**
 
 ```bash
 #!/bin/bash
 sudo apt update -y
-sudo apt install openjdk-17-jdk -y
-sudo apt install maven -y
-sudo apt install git -y
-java -version
-mvn -version
+sudo apt install openjdk-17-jdk maven git -y
 ```
+
+#### **Option B: Amazon Linux 2023**
 
 ```bash
 #!/bin/bash
 dnf update -y
 dnf install java-17-amazon-corretto-devel git wget -y
-
 cd /opt
 wget [https://archive.apache.org/dist/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz](https://archive.apache.org/dist/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz)
 tar -xzvf apache-maven-3.9.6-bin.tar.gz
 ln -s /opt/apache-maven-3.9.6 /opt/maven
-
 echo "export M2_HOME=/opt/maven" > /etc/profile.d/maven.sh
-echo "export PATH=\\$M2_HOME/bin:\\$PATH" >> /etc/profile.d/maven.sh
+echo "export PATH=\$M2_HOME/bin:\$PATH" >> /etc/profile.d/maven.sh
 source /etc/profile.d/maven.sh
 ```
 
 ### 2. SonarQube Server
 
-Note: SonarQube requires specific system tweaks for Elasticsearch.
+SonarQube requires kernel tweaks for the underlying Elasticsearch engine.
+
+#### **Option A: Ubuntu
 
 ```bash
 #!/bin/bash
-sudo sysctl -w vm.max_map_count=262144
-sudo sysctl -w fs.file-max=65536
+# Kernel Tweaks
+
+sysctl -w vm.max_map_count=262144
+sysctl -w fs.file-max=65536
 ulimit -n 65536
 ulimit -u 4096
 
-sudo apt update -y
-sudo apt install -y openjdk-17-jdk unzip
-
+apt update -y
+apt install -y openjdk-17-jdk unzip
 cd /opt
-sudo wget [https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.9.4.87555.zip](https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.9.4.87555.zip)
-sudo unzip sonarqube-9.9.4.87555.zip
-sudo mv sonarqube-9.9.4.87555 sonarqube
+wget [https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.9.4.87555.zip](https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.9.4.87555.zip)
+unzip sonarqube-9.9.4.87555.zip
+mv sonarqube-9.9.4.87555 sonarqube
 
-sudo useradd sonar
-sudo chown -R sonar:sonar /opt/sonarqube
-sudo su - sonar -c "/opt/sonarqube/bin/linux-x86-64/sonar.sh start"
+useradd sonar
+chown -R sonar:sonar /opt/sonarqube
+
+**Create Systemd Service**
+cat <<EOT> /etc/systemd/system/sonar.service
+[Unit]
+Description=SonarQube service
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/opt/sonarqube/bin/linux-x86-64/sonar.sh start
+ExecStop=/opt/sonarqube/bin/linux-x86-64/sonar.sh stop
+User=sonar
+Group=sonar
+Restart=always
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
+EOT
+
+systemctl daemon-reload
+systemctl enable sonar
+systemctl start sonar
+
 ```
 
 ```bash
@@ -87,23 +112,22 @@ chown -R sonarqube:sonarqube /opt/sonarqube
 sudo -u sonarqube /opt/sonarqube/bin/linux-x86-64/sonar.sh start
 ```
 
-### 3. Nexus Repository Manager
+### 3. Nexus Repository Manager (Ubuntu)
 
 ```bash
 #!/bin/bash
-sudo apt update -y
-sudo apt install -y openjdk-8-jdk wget
-
+apt update -y
+apt install -y openjdk-8-jdk wget
 cd /opt
-sudo wget [https://download.sonatype.com/nexus/3/latest-unix.tar.gz](https://download.sonatype.com/nexus/3/latest-unix.tar.gz)
-sudo tar -xvzf latest-unix.tar.gz
-sudo mv nexus-3.* nexus
+wget [https://download.sonatype.com/nexus/3/latest-unix.tar.gz](https://download.sonatype.com/nexus/3/latest-unix.tar.gz)
+tar -xvzf latest-unix.tar.gz
+mv nexus-3.* nexus
 
-sudo useradd nexus
-sudo chown -R nexus:nexus /opt/nexus
-sudo chown -R nexus:nexus /opt/sonatype-work
+useradd nexus
+chown -R nexus:nexus /opt/nexus
+chown -R nexus:nexus /opt/sonatype-work
 
-sudo cat <<EOT > /etc/systemd/system/nexus.service
+cat <<EOT> /etc/systemd/system/nexus.service
 [Unit]
 Description=nexus service
 After=network.target
@@ -120,9 +144,9 @@ Restart=on-abort
 WantedBy=multi-user.target
 EOT
 
-sudo systemctl daemon-reload
-sudo systemctl enable nexus
-sudo systemctl start nexus
+systemctl daemon-reload
+systemctl enable nexus
+systemctl start nexus
 ```
 
 ```bash
@@ -201,4 +225,60 @@ nc -zv <NEXUS_PRIVATE_IP> 8081
 
 # Test connection to SonarQube
 nc -zv <SONAR_PRIVATE_IP> 9000
+`
+``
+### 🚀 3. Integration & Connectivity
+
+Step A: Configure Maven Settings
+On the Maven Build Server, create ~/.m2/settings.xml to allow Maven to authenticate with Nexus:
+
+XML
+<settings>
+  <servers>
+    <server>
+      <id>nexus-releases</id>
+      <username>admin</username>
+      <password>YOUR_NEXUS_PASSWORD</password>
+    </server>
+    <server>
+      <id>nexus-snapshots</id>
+      <username>admin</username>
+      <password>YOUR_NEXUS_PASSWORD</password>
+    </server>
+  </servers>
+</settings>
+
+Step B: Connectivity Test
+Run from the Maven Server to ensure firewall/SGs are open:
+
+```bash
+nc -zv <SONAR_IP> 9000
+nc -zv <NEXUS_IP> 8081
+```
+
+### 🚀 4. Running the Pipeline Manually
+
+**1. Code Analysis**
+Run this from your project root to send data to SonarQube:
+
+```bash
+mvn sonar:sonar \
+  -Dsonar.projectKey=my-app \
+  -Dsonar.host.url=http://<SONAR_IP>:9000 \
+  -Dsonar.login=<SONAR_TOKEN>
+  ```
+
+**2.Artifact Deployment**
+Deploy your .jar or .war files to the Nexus Repository:
+
+```bash
+mvn clean deploy
+```
+
+**🧹 Cleanup**
+To stop services:
+
+```bash
+sudo systemctl stop sonar
+sudo systemctl stop nexus
 ```
