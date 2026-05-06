@@ -49,28 +49,31 @@ SonarQube requires kernel tweaks for the underlying Elasticsearch engine.
 
 ```bash
 #!/bin/bash
-# Kernel Tweaks
+# 1. System Updates & Prerequisites
+apt-get update -y
+apt-get install -y openjdk-17-jdk unzip wget
 
-sysctl -w vm.max_map_count=262144
-sysctl -w fs.file-max=65536
-ulimit -n 65536
-ulimit -u 4096
+# 2. Increase Kernel Limits for Elasticsearch (Crucial for SonarQube)
+# This prevents the service from failing on boot
+echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+echo "fs.file-max=65536" >> /etc/sysctl.conf
+sysctl -p
 
-apt update -y
-apt install -y openjdk-17-jdk unzip
-cd /opt
-wget [https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.9.4.87555.zip](https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.9.4.87555.zip)
-unzip sonarqube-9.9.4.87555.zip
-mv sonarqube-9.9.4.87555 sonarqube
+# 3. Create a dedicated sonar user
+useradd -m -d /opt/sonarqube -s /bin/bash sonar
 
-useradd sonar
+# 4. Download and Install SonarQube (Community Edition)
+cd /tmp
+wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-10.4.1.88267.zip
+unzip sonarqube-10.4.1.88267.zip
+mv sonarqube-10.4.1.88267/* /opt/sonarqube
 chown -R sonar:sonar /opt/sonarqube
 
-**Create Systemd Service**
-cat <<EOT> /etc/systemd/system/sonar.service
+# 5. Create Systemd Service File
+cat <<EOT > /etc/systemd/system/sonar.service
 [Unit]
 Description=SonarQube service
-After=network.target
+After=syslog.target network.target
 
 [Service]
 Type=forking
@@ -86,6 +89,7 @@ LimitNPROC=4096
 WantedBy=multi-user.target
 EOT
 
+# 6. Enable and Start the Service
 systemctl daemon-reload
 systemctl enable sonar
 systemctl start sonar
@@ -116,18 +120,48 @@ sudo -u sonarqube /opt/sonarqube/bin/linux-x86-64/sonar.sh start
 
 ```bash
 #!/bin/bash
-apt update -y
-apt install -y openjdk-8-jdk wget
-cd /opt
-wget [https://download.sonatype.com/nexus/3/latest-unix.tar.gz](https://download.sonatype.com/nexus/3/latest-unix.tar.gz)
-tar -xvzf latest-unix.tar.gz
-mv nexus-3.* nexus
 
-useradd nexus
-chown -R nexus:nexus /opt/nexus
-chown -R nexus:nexus /opt/sonatype-work
+# Update package list
+sudo apt update -y
 
-cat <<EOT> /etc/systemd/system/nexus.service
+# Install OpenJDK 17
+sudo apt install openjdk-17-jdk -y
+
+# Verify Java installation
+java --version
+
+# Download the latest Nexus tarball to /opt
+sudo wget https://download.sonatype.com/nexus/3/nexus-unix-x86-64-3.78.1-02.tar.gz -O /opt/latest-unix.tar.gz
+
+# Extract the tarball
+sudo tar -xvzf /opt/latest-unix.tar.gz -C /opt
+
+# Rename the extracted directory to /opt/nexus
+# Note: The exact version number may vary; using a wildcard to handle this
+sudo mv /opt/nexus-3.* /opt/nexus
+
+# Create a nexus user non-interactively
+sudo adduser --disabled-password --gecos "" nexus
+
+# Grant the nexus user sudo privileges without a password
+sudo su
+echo "nexus ALL=(ALL) NOPASSWD: ALL" | sudo tee -a /etc/sudoers
+
+# Change ownership of nexus directories
+sudo chown -R nexus:nexus /opt/nexus
+sudo chown -R nexus:nexus /opt/sonatype-work
+
+# Configure the nexus.rc file to run as the nexus user
+echo 'run_as_user="nexus"' | sudo tee /opt/nexus/bin/nexus.rc
+
+# Append JVM options to nexus.vmoptions
+cat <<EOL | sudo tee -a /opt/nexus/bin/nexus.vmoptions
+-XX:MaxDirectMemorySize=2703m
+-Djava.net.preferIPv4Stack=true
+EOL
+
+# Create the systemd service file for Nexus
+cat <<EOL | sudo tee /etc/systemd/system/nexus.service
 [Unit]
 Description=nexus service
 After=network.target
@@ -142,11 +176,19 @@ Restart=on-abort
 
 [Install]
 WantedBy=multi-user.target
-EOT
+EOL
 
-systemctl daemon-reload
-systemctl enable nexus
-systemctl start nexus
+# Reload systemd, start, and enable the Nexus service
+sudo systemctl daemon-reload
+sudo systemctl start nexus
+sudo systemctl enable nexus
+
+# Check the status of the Nexus service
+sudo systemctl status nexus
+
+# Allow Nexus default port (8081) through the firewall
+sudo su
+ufw allow 8081/tcp
 ```
 
 ```bash
@@ -232,21 +274,42 @@ nc -zv <SONAR_PRIVATE_IP> 9000
 Step A: Configure Maven Settings
 On the Maven Build Server, create ~/.m2/settings.xml to allow Maven to authenticate with Nexus:
 
+```bash
+mkdir -p ~/.m2
+nano ~/.m2/settings.xml
+```
+
+### Add the Authentication Block
+
+```bash
 XML
-<settings>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                      https://maven.apache.org/xsd/settings-1.0.0.xsd">
   <servers>
+    <server>
+      <!-- This ID must match the <id> in your pom.xml distributionManagement -->
+      <id>nexus-snapshots</id>
+      <username>admin</username>
+      <password>your_nexus_password</password>
+    </server>
     <server>
       <id>nexus-releases</id>
       <username>admin</username>
-      <password>YOUR_NEXUS_PASSWORD</password>
-    </server>
-    <server>
-      <id>nexus-snapshots</id>
-      <username>admin</username>
-      <password>YOUR_NEXUS_PASSWORD</password>
+      <password>your_nexus_password</password>
     </server>
   </servers>
 </settings>
+```
+
+### Verify the permissions
+
+Since the file contains plain-text passwords, it is a best practice to restrict its permissions so only your user can read it:
+
+```bash
+chmod 600 ~/.m2/settings.xml
+```
 
 Step B: Connectivity Test
 Run from the Maven Server to ensure firewall/SGs are open:
