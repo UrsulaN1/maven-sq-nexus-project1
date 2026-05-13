@@ -14,7 +14,7 @@
         <!-- SonarQube Properties -->
         <sonar.host.url>http://localhost:9000</sonar.host.url>
         <sonar.projectKey>my-web-app</sonar.projectKey>
-        <junit.version>5.10.0</junit.version>
+        <junit.version>6.0.3</junit.version>
     </properties>
 
     <dependencies>
